@@ -35,13 +35,24 @@
     Email:  luivelmor@us.es | juanafr@us.es
     Licencia: GNU General Public License v3.0. https://www.gnu.org/licenses/gpl-3.0.html
 #>
+
 #Gorilla Server DNS Name or IP
-$gorillaserver = "http://gorillaserver"
+$gorillaserver = "https://gorillaserver"
+
+
+##########################################
+### 0 - añadir DNS servidor al cliente ###
+##########################################
+$hosts_content = Get-Content -Path "C:\Windows\System32\drivers\etc\hosts"
+if( !($hosts_content -contains "10.1.21.2   gorillareport") ){
+    Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "10.1.21.2   gorillareport"
+    Write-Host "10.1.21.2   gorillareport -> se ha anadido al fichero \etc\hosts"    
+}
 
 #########################################
 ### 1 - Instala el software necesario ###
 #########################################
-$homedir = [Environment]::GetFolderPath("UserProfile")
+$homedir = $env:USERPROFILE
 # 1.1 - Instalamos powershell 7
 If ( !(Test-Path "C:\Program Files\PowerShell\7\pwsh.exe") ) {
     # copiamos el script
@@ -117,7 +128,7 @@ else {
 ###########################################################################################
 
 # Directorio home del usuario
-$homedir = [Environment]::GetFolderPath("UserProfile")
+$homedir = $env:USERPROFILE
 # Directorio de gorillaReport
 $gorillaReportDir = "gorillaReport"
 # Directorio donde se guardan los modulos de gorillaReport
@@ -145,40 +156,63 @@ else {
 }
 
 # 3.2 - descarga de ficheros (sin certificado, AuthBasic in gorilla server)
-$HASH = ''
-If ( (Test-Path $GRModule_path) ) {
-    $HASH = (Get-FileHash $GRModule_path).Hash
+
+pwsh -Command {
+    # NOTA: es necesario duplicar las siguientes variables dentro del bloque pwsh -Command {...}
+    #Gorilla Server DNS Name or IP
+    $gorillaserver = "https://gorillaserver"
+    # Directorio home del usuario
+    $homedir = $env:USERPROFILE
+    # Directorio de gorillaReport
+    $gorillaReportDir = "gorillaReport"
+    # Directorio donde se guardan los modulos de gorillaReport
+    $gr_modules_path = "$homeDir\$gorillaReportDir\modules"
+    #Directorio donde se guarda el módulo GRModule.psm1
+    $gr_module_dir = "$gr_modules_path\GRModule"
+    # Nombre del modulo
+    $gr_module_name = "GRModule.psm1"
+    #path al fichero GRModule.psm1
+    $GRModule_path = "$gr_module_dir\$gr_module_name"
+
+    # certificado pfx (requiere contraseña en windows ltsc)
+    $pass = ConvertTo-SecureString -String 'asdf' -AsPlainText -Force
+    $client_pfx_cert = Get-PfxCertificate -FilePath "C:\ProgramData\gorilla\cliente_gorillaserver.pfx" -Password $pass
+    
+    $HASH = ''
+    If ( (Test-Path $GRModule_path) ) {
+        $HASH = (Get-FileHash $GRModule_path).Hash
+    }
+
+    Write-Host "Hash del fichero $GRModule_path : $HASH"
+
+    # si no existe el archivo ó si el hash no coincide con la plantilla del servidor
+    If ($HASH -ne "a2a91f5e93d9529c956e0211ad446408ce425c29a1903b05566bd2c27492d701") {
+        $file = "$gorillaserver/packages/gorillaReport/modules/GRModule/GRModule.psm1"       
+        Invoke-WebRequest -Uri $file -OutFile $GRModule_path -Certificate $client_pfx_cert
+    }
+    else {
+        Write-Host "El fichero $GRModule_path ya existe y no es necesario descargarlo."
+    }
+
+    # 3.3 - descarga scripts de python (parser)
+    If (!(Test-Path "$gr_modules_path\python_gorilla_parser")) {
+        New-Item -ItemType Directory -Path "$gr_modules_path\python_gorilla_parser" -ErrorAction Stop | Out-Null
+        Write-Host "Directorio " + "$gr_modules_path\python_gorilla_parser" + "creado correctamente."
+    }
+    else {
+        Write-Host "El directorio " + "$gr_modules_path\python_gorilla_parser" + " ya existe."
+    }
+
+    # descargamos los ficheros
+    $file1 = "$gorillaserver/packages/gorillaReport/modules/python_gorilla_parser/main.py"
+    $outputFile1 = "$homedir\gorillaReport\modules\python_gorilla_parser\main.py"
+
+    $file2 = "$gorillaserver/packages/gorillaReport/modules/python_gorilla_parser/my_functions.py"
+    $outputFile2 = "$homedir\gorillaReport\modules\python_gorilla_parser\my_functions.py"
+
+    if (!(Test-Path $file1)) { Invoke-WebRequest -Uri $file1 -OutFile $outputFile1 -Certificate $client_pfx_cert }
+    if (!(Test-Path $file2)) { Invoke-WebRequest -Uri $file2 -OutFile $outputFile2 -Certificate $client_pfx_cert }
 }
-
-Write-Host "Hash del fichero $GRModule_path : $HASH"
-
-# si no existe el archivo ó si el hash no coincide con la plantilla del servidor
-If ($HASH -ne "a2a91f5e93d9529c956e0211ad446408ce425c29a1903b05566bd2c27492d701") {
-    $file = "$gorillaserver/packages/gorillaReport/modules/GRModule/GRModule.psm1"       
-    Invoke-WebRequest -Uri $file -OutFile $GRModule_path 
-}
-else {
-    Write-Host "El fichero $GRModule_path ya existe y no es necesario descargarlo."
-}
-
-# 3.3 - descarga scripts de python (parser)
-If (!(Test-Path $gr_modules_path\python_gorilla_parser)) {
-    New-Item -ItemType Directory -Path $gr_modules_path\python_gorilla_parser -ErrorAction Stop | Out-Null
-    Write-Host "Directorio " + "$gr_modules_path\python_gorilla_parser" + "creado correctamente."
-}
-else {
-    Write-Host "El directorio " + "$gr_modules_path\python_gorilla_parser" + " ya existe."
-}
-
-# descargamos los ficheros
-$file1 = "$gorillaserver/packages/gorillaReport/modules/python_gorilla_parser/main.py"
-$outputFile1 = "$homedir\gorillaReport\modules\python_gorilla_parser\main.py"
-
-$file2 = "$gorillaserver/packages/gorillaReport/modules/python_gorilla_parser/my_functions.py"
-$outputFile2 = "$homedir\gorillaReport\modules\python_gorilla_parser\my_functions.py"
-
-if (!(Test-Path $file1)) { Invoke-WebRequest -Uri $file1 -OutFile $outputFile1 }
-if (!(Test-Path $file2)) { Invoke-WebRequest -Uri $file2 -OutFile $outputFile2 }
 
 
 #############################################################################################
@@ -217,23 +251,37 @@ else {
 ### 5 - Descarga scripts para realizar reportes ###
 ###################################################
 
-$file1 = "$gorillaserver/packages/gorillaReport/scripts/register_gorilla_report.ps1"
-$outputFile1 = "$homedir\gorillaReport\scripts\register_gorilla_report.ps1"
+pwsh -Command {
+    # NOTA: es necesario duplicar las siguientes variables dentro del bloque pwsh -Command {...}
+    #Gorilla Server DNS Name or IP
+    $gorillaserver = "https://gorillaserver"
+    # home de usuario
+    $homedir = $env:USERPROFILE
 
-$file2 = "$gorillaserver/packages/gorillaReport/scripts/register_client.ps1"
-$outputFile2 = "$homedir\gorillaReport\scripts\register_client.ps1"
+    # certificado pfx (requiere contraseña en windows ltsc)
+    $pass = ConvertTo-SecureString -String 'asdf' -AsPlainText -Force
+    $client_pfx_cert = Get-PfxCertificate -FilePath "C:\ProgramData\gorilla\cliente_gorillaserver.pfx" -Password $pass
+    
+    $file1 = "$gorillaserver/packages/gorillaReport/scripts/register_gorilla_report.ps1"
+    $outputFile1 = "$homedir\gorillaReport\scripts\register_gorilla_report.ps1"
 
-$file3 = "$gorillaserver/packages/gorillaReport/scripts/send_report_pwsh7.ps1"
-$outputFile3 = "$home\gorillaReport\scripts\send_report_pwsh7.ps1"
+    $file2 = "$gorillaserver/packages/gorillaReport/scripts/register_client.ps1"
+    $outputFile2 = "$homedir\gorillaReport\scripts\register_client.ps1"
 
-$file4 = "$gorillaserver/packages/gorillaReport/scripts/register_basic_info.ps1"
-$outputFile4 = "$homedir\gorillaReport\scripts\register_basic_info.ps1"
+    $file3 = "$gorillaserver/packages/gorillaReport/scripts/send_report_pwsh7.ps1"
+    $outputFile3 = "$home\gorillaReport\scripts\send_report_pwsh7.ps1"
 
-$file5 = "$gorillaserver/packages/gorillaReport/scripts/gorilla_report.ps1"
-$outputFile5 = "$homedir\gorillaReport\scripts\gorilla_report.ps1"
+    $file4 = "$gorillaserver/packages/gorillaReport/scripts/register_basic_info.ps1"
+    $outputFile4 = "$homedir\gorillaReport\scripts\register_basic_info.ps1"
 
-if (!(Test-Path $outputFile1)) { Invoke-WebRequest -Uri $file1 -OutFile $outputFile1 }
-if (!(Test-Path $outputFile2)) { Invoke-WebRequest -Uri $file2 -OutFile $outputFile2 }
-if (!(Test-Path $outputFile3)) { Invoke-WebRequest -Uri $file3 -OutFile $outputFile3 }
-if (!(Test-Path $outputFile4)) { Invoke-WebRequest -Uri $file4 -OutFile $outputFile4 }
-if (!(Test-Path $outputFile5)) { Invoke-WebRequest -Uri $file5 -OutFile $outputFile5 }
+    $file5 = "$gorillaserver/packages/gorillaReport/scripts/gorilla_report.ps1"
+    $outputFile5 = "$homedir\gorillaReport\scripts\gorilla_report.ps1"
+
+    if (!(Test-Path $outputFile1)) { Invoke-WebRequest -Uri $file1 -OutFile $outputFile1 -Certificate $client_pfx_cert}
+    if (!(Test-Path $outputFile2)) { Invoke-WebRequest -Uri $file2 -OutFile $outputFile2 -Certificate $client_pfx_cert}
+    if (!(Test-Path $outputFile3)) { Invoke-WebRequest -Uri $file3 -OutFile $outputFile3 -Certificate $client_pfx_cert}
+    if (!(Test-Path $outputFile4)) { Invoke-WebRequest -Uri $file4 -OutFile $outputFile4 -Certificate $client_pfx_cert}
+    if (!(Test-Path $outputFile5)) { Invoke-WebRequest -Uri $file5 -OutFile $outputFile5 -Certificate $client_pfx_cert}
+}
+
+Start-Sleep -Seconds 5
