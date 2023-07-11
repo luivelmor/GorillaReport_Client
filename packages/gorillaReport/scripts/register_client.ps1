@@ -12,7 +12,7 @@
 #>
 
 # Variables
-$ip_pattern = "172."
+$ip_pattern = "10.1.21."
 $gr_module = "GRModule"
 $this_script = "register_client.ps1"
 
